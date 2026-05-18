@@ -1,0 +1,11 @@
+{
+  "_comment": "Pinned versions for the Chase Cowork platform. Bump deliberately; do not auto-upgrade.",
+  "_updated": "2026-05-14",
+  "claude_code": ">=2.0.0",
+  "python": "3.11",
+  "node": "20",
+  "git": ">=2.40",
+  "uv": "latest",
+  "ms_365_mcp_server": "0.107.2",
+  "supported_windows": ["Windows 10 22H2+", "Windows 11"]
+}

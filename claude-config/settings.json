@@ -1,0 +1,5 @@
+{
+  "_comment": "Chase Cowork — Claude Code settings template. Mirrored to ~/.claude/settings.json by setup.ps1.",
+  "_updated": "2026-05-14",
+  "_note": "Settings shape evolves with Claude Code releases. Bump on every claude_code version pin change in bootstrap/versions.json."
+}

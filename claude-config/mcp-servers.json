@@ -1,0 +1,27 @@
+{
+  "_comment": "Chase Cowork — MCP server registry distributed via SharePoint. Each user's Claude Code reads this and registers the servers locally.",
+  "_updated": "2026-05-14",
+  "mcpServers": {
+    "ms-365": {
+      "_purpose": "Microsoft 365 access (Mail, Calendar, OneDrive, SharePoint, Excel, Teams) with per-user delegated auth.",
+      "_source": "https://github.com/softeria/ms-365-mcp-server",
+      "_version_pinned": "0.107.2",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@softeria/ms-365-mcp-server@0.107.2",
+        "--org-mode"
+      ],
+      "env": {
+        "MS365_MCP_CLIENT_ID": "e2b1eeec-0b7b-4238-8bac-92007530bd31",
+        "MS365_MCP_TENANT_ID": "afbb8ea1-0e42-4f9a-b3d8-6fc556a1ea38",
+        "MS365_MCP_TOKEN_CACHE_PATH": "%LOCALAPPDATA%\\chase-cowork\\ms365-token-cache.json"
+      }
+    },
+    "chase-internal": {
+      "_purpose": "Read-only queries against the Azure SQL audit corpus (Phase 5 — placeholder).",
+      "_status": "not_yet_available",
+      "_comment": "Will be activated when Phase 5 lands. Until then, this entry is informational."
+    }
+  }
+}
