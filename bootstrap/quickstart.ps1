@@ -3,25 +3,27 @@
     Chase Cowork - one-button bootstrap for Chase Group Construction employees.
 
 .DESCRIPTION
+    Truly self-contained. Downloads the public bootstrap bundle from
+    GitHub, extracts it locally, runs the installer. No SharePoint sync,
+    no OneDrive shortcuts, no preconditions other than internet access.
+
     Resilient by design:
       - Window never closes silently. Always Read-Host pauses at the end.
-      - All output (including errors) is logged to Desktop\cowork-install.log
-        so even if something exotic happens, we have a forensic record.
-      - Any unhandled error is caught, printed, and the user is told where
-        the log is.
-
-    Locates the SharePoint-synced claude-cowork/ folder using a tiered
-    search (known paths first, then recursive scan of OneDrive / Chase
-    profile folders for an Add-shortcut-to-OneDrive style install).
-    Runs setup.ps1 + verify.ps1.
+      - All output (including errors) is logged to Desktop\cowork-install.log.
+      - Any unhandled error is caught, printed, and the log path surfaced.
 
 .NOTES
-    Distributed via public GitHub Gist; pasted by Chase into a Teams chat.
+    Distributed via public Gist; pasted by Chase into a Teams chat.
+    Source of truth for the bundle: https://github.com/grantdozier/claude-cowork-public
     The script itself contains no secrets - safe to host publicly.
 #>
 
 [CmdletBinding()]
-param()
+param(
+    # Override these if you ever fork the public mirror.
+    [string]$BundleUrl     = 'https://github.com/grantdozier/claude-cowork-public/archive/refs/heads/main.zip',
+    [string]$InstallRoot   = (Join-Path $env:LOCALAPPDATA 'chase-cowork\install')
+)
 
 # --- Always log everything ---------------------------------------------------
 $LogPath = Join-Path $env:USERPROFILE 'Desktop\cowork-install.log'
@@ -59,78 +61,49 @@ function Pause-And-Exit ([int]$code = 0) {
 try {
     Show-Banner "Chase Cowork - Quick Start"
     Write-Host "Sets up Claude Code on your laptop with the company configuration." -ForegroundColor White
-    Write-Host "Takes about 5 minutes. You can keep working on other stuff while it runs."
-    Write-Host ""
-    Write-Host "Heads-up: Windows may prompt you to allow installs - say yes." -ForegroundColor DarkGray
+    Write-Host "Takes about 5 minutes. Windows may prompt you to allow installs - say yes." -ForegroundColor DarkGray
     Write-Host ""
 
-    # --- 1. Find the SharePoint-synced cowork folder -----------------------
-    Write-Host "Looking for the claude-cowork folder on this laptop..." -ForegroundColor White
+    # --- 1. Download the public bootstrap bundle ---------------------------
+    Write-Host "Downloading the latest bootstrap bundle..." -ForegroundColor White
+    Write-Host "  Source: $BundleUrl" -ForegroundColor DarkGray
 
-    $knownPaths = @(
-        "$env:USERPROFILE\Chase Construction Group\Chase Group Construction - Documents\Chase Group Files\4. MISCELLANEOUS\Claude\claude-cowork",
-        "$env:OneDriveCommercial\Chase Group Construction - Documents\Chase Group Files\4. MISCELLANEOUS\Claude\claude-cowork",
-        "$env:USERPROFILE\OneDrive - Chase Construction Group\Chase Group Files\4. MISCELLANEOUS\Claude\claude-cowork",
-        "$env:USERPROFILE\OneDrive - Chase Construction Group\Chase Group Construction - Documents\Chase Group Files\4. MISCELLANEOUS\Claude\claude-cowork",
-        "$env:USERPROFILE\OneDrive - Chase Construction Group\4. MISCELLANEOUS\Claude\claude-cowork",
-        "$env:USERPROFILE\OneDrive - Chase Construction Group\Claude\claude-cowork"
-    )
+    $zipPath = Join-Path $env:TEMP 'chase-cowork-bundle.zip'
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-    $coworkRoot = $null
-    foreach ($p in $knownPaths) {
-        if (Test-Path (Join-Path $p 'bootstrap\setup.ps1')) {
-            $coworkRoot = $p
-            break
-        }
+    # Use TLS 1.2 explicitly (older PowerShell defaults are weaker)
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+    Invoke-WebRequest -Uri $BundleUrl -OutFile $zipPath -UseBasicParsing
+    $zipSize = (Get-Item $zipPath).Length
+    Write-Host "  [OK] Downloaded $zipSize bytes" -ForegroundColor Green
+
+    # --- 2. Extract -------------------------------------------------------
+    Write-Host "Extracting to $InstallRoot..." -ForegroundColor White
+    if (Test-Path $InstallRoot) {
+        Remove-Item $InstallRoot -Recurse -Force
     }
+    New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
 
-    # Fallback: recursive scan of OneDrive/Chase folders in the user profile
-    if (-not $coworkRoot) {
-        Write-Host "  Not in any known path. Scanning OneDrive folders (about 20 seconds)..." -ForegroundColor DarkGray
-        $searchRoots = Get-ChildItem $env:USERPROFILE -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like '*OneDrive*' -or $_.Name -like '*Chase*' }
-        foreach ($root in $searchRoots) {
-            $found = Get-ChildItem $root.FullName -Recurse -Directory -Filter 'claude-cowork' -Depth 8 -ErrorAction SilentlyContinue |
-                Where-Object { Test-Path (Join-Path $_.FullName 'bootstrap\setup.ps1') } |
-                Select-Object -First 1
-            if ($found) { $coworkRoot = $found.FullName; break }
-        }
+    Expand-Archive -Path $zipPath -DestinationPath $InstallRoot -Force
+    Remove-Item $zipPath -Force
+
+    # GitHub zips wrap content in a folder like claude-cowork-public-main/
+    $extractedRoot = Get-ChildItem $InstallRoot -Directory | Select-Object -First 1
+    if (-not $extractedRoot) {
+        throw "Bundle extracted but no top-level folder found inside $InstallRoot"
     }
-
-    if (-not $coworkRoot) {
-        Show-Banner "Cannot find the company Claude folder" 'Yellow'
-        Write-Host "SharePoint isn't syncing the claude-cowork/ folder to this laptop yet."
-        Write-Host ""
-        Write-Host "Fix it in 2 minutes:" -ForegroundColor White
-        Write-Host "  1. Open your browser and sign in to:"
-        Write-Host "     https://chasegroupcc.sharepoint.com" -ForegroundColor Cyan
-        Write-Host "  2. Go to: Chase Group Files > 4. MISCELLANEOUS > Claude > claude-cowork"
-        Write-Host "  3. Click the 'Sync' button at the top of the page."
-        Write-Host "  4. Wait until OneDrive shows a green check (about 30 seconds)."
-        Write-Host "  5. Re-run this quickstart command."
-        Write-Host ""
-        Write-Host "If 'Sync' is disabled with the message:" -ForegroundColor White
-        Write-Host "  'You are already syncing a shortcut to a folder from this shared library'"
-        Write-Host "then you already have a OneDrive shortcut for this library at a higher level."
-        Write-Host "Open File Explorer, navigate into your 'OneDrive - Chase Construction Group'"
-        Write-Host "folder, find the Claude subfolder (or wherever the shortcut lives), and OPEN it."
-        Write-Host "Just clicking into the folder forces OneDrive to download it. Then re-run."
-        Write-Host ""
-        Write-Host "Paths I checked (none had bootstrap\setup.ps1):" -ForegroundColor DarkGray
-        foreach ($p in $knownPaths) { Write-Host "  $p" -ForegroundColor DarkGray }
-        Write-Host ""
-        Write-Host "If you don't see the Claude folder anywhere, ask Chase for access."
-        Pause-And-Exit 1
-    }
-
-    Write-Host "[OK] Found claude-cowork at:" -ForegroundColor Green
-    Write-Host "  $coworkRoot" -ForegroundColor DarkGray
-    Write-Host ""
+    $coworkRoot = $extractedRoot.FullName
+    Write-Host "  [OK] Extracted to: $coworkRoot" -ForegroundColor Green
 
     $setupPath  = Join-Path $coworkRoot 'bootstrap\setup.ps1'
     $verifyPath = Join-Path $coworkRoot 'bootstrap\verify.ps1'
 
-    # --- 2. Run setup.ps1 --------------------------------------------------
+    if (-not (Test-Path $setupPath)) {
+        throw "setup.ps1 not found at $setupPath - bundle structure unexpected"
+    }
+
+    # --- 3. Run setup.ps1 --------------------------------------------------
     Show-Banner "Installing platform" 'Cyan'
     & $setupPath
     $setupExit = $LASTEXITCODE
@@ -141,12 +114,12 @@ try {
         Pause-And-Exit $setupExit
     }
 
-    # --- 3. Run verify.ps1 -------------------------------------------------
+    # --- 4. Run verify.ps1 -------------------------------------------------
     Show-Banner "Health check" 'Cyan'
     & $verifyPath
     $verifyExit = $LASTEXITCODE
 
-    # --- 4. Next steps -----------------------------------------------------
+    # --- 5. Next steps -----------------------------------------------------
     if ($verifyExit -eq 0) {
         Show-Banner "Ready to use" 'Green'
         Write-Host "Three things to do next:" -ForegroundColor White
@@ -163,9 +136,7 @@ try {
         Write-Host '  "Find emails from Mitchell Rotolo about FPK this week."'
         Write-Host '  "Show me what''s in the 25-116 800 E Farrel folder."'
         Write-Host ""
-        Write-Host "Need help? Message Chase. Full docs:"
-        Write-Host "  $coworkRoot\docs\ONBOARDING.md" -ForegroundColor DarkGray
-        Write-Host "  $coworkRoot\docs\TROUBLESHOOTING.md" -ForegroundColor DarkGray
+        Write-Host "Need help? Message Chase."
         Pause-And-Exit 0
     } else {
         Show-Banner "Some checks failed" 'Yellow'

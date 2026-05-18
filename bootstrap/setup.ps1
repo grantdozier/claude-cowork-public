@@ -67,11 +67,11 @@ Write-Host "Bootstrap dir : $BootstrapDir"
 Write-Host "User config   : $UserClaudeDir"
 Write-Host ""
 
-# ─── 1. Verify OneDrive is syncing this folder ──────────────────────────────
-Write-Step 'Verifying OneDrive sync of claude-cowork/'
+# ─── 1. Verify the bundle is intact ─────────────────────────────────────────
+Write-Step 'Verifying bundle integrity'
 if (-not (Test-Path (Join-Path $ClaudeConfig 'CLAUDE.md'))) {
-    Write-Err 'claude-config/CLAUDE.md is missing — OneDrive sync is incomplete.'
-    Write-Err 'Wait for OneDrive to finish syncing, then re-run this script.'
+    Write-Err "claude-config/CLAUDE.md is missing at $ClaudeConfig"
+    Write-Err 'The bootstrap bundle is incomplete. Re-run quickstart.ps1 to redownload.'
     exit 1
 }
 Write-Ok 'claude-cowork/ contents present'
