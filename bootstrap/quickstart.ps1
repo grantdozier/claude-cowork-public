@@ -25,12 +25,15 @@
 
     Side note on chase-internal auth (Phase 5):
       The MCP server uses DefaultAzureCredential -> Azure Key Vault -> SQL.
-      That means each user needs to be `az login`ed to Azure AND granted
-      `Key Vault Secrets User` access on `kv-chase-cowork-5f74` plus
-      `db_datareader` on `chasecowork-audit` for the corpus MCP to work.
-      Until Chase grants those, the chase-internal MCP will return
-      "Access denied" for that user. The install puts the files in place;
-      the per-user Azure grants are separate manual work.
+      IMPORTANT: kv-chase-cowork-5f74 uses ACCESS POLICY mode (not RBAC).
+      Each user needs:
+        (a) az login on their machine (so DefaultAzureCredential resolves)
+        (b) Key Vault ACCESS POLICY (get + list) -- NOT an RBAC role -- on
+            kv-chase-cowork-5f74
+        (c) db_datareader on chasecowork-audit SQL database
+        (d) users.toml deployed to the laptop (see §4 below)
+      Run bootstrap\grant-user-access.ps1 as an admin to handle (b) and (c).
+      Until all four are done, the chase-internal MCP returns "Access denied".
 
 .PARAMETER IncludeClaudeCode
     Also install Claude Code (CLI) -- the agentic terminal interface.
@@ -175,12 +178,23 @@ try {
     }
     Write-Host "      OK   downloaded server.py + requirements.txt to $mcpRoot" -ForegroundColor Green
 
-    Write-Host "      Installing Python deps (mcp, azure-identity, azure-keyvault-secrets, pymssql)..." -ForegroundColor Yellow
+    Write-Host "      Installing Python deps (mcp, azure-identity, azure-keyvault-secrets, pymssql, httpx)..." -ForegroundColor Yellow
     $pipExit = Invoke-Native { python -m pip install --quiet --user --upgrade -r (Join-Path $mcpRoot 'requirements.txt') }
     if ($pipExit -ne 0) {
         Write-Host "      WARN pip returned $pipExit (deprecation/warning noise is usually OK)" -ForegroundColor Yellow
     } else {
         Write-Host "      OK   Python deps installed" -ForegroundColor Green
+    }
+
+    # Create the users.toml directory (the file itself is deployed by an admin via grant-user-access.ps1)
+    $usersTomlDir  = Join-Path $env:LOCALAPPDATA 'claude-cowork-audit\config'
+    $usersTomlPath = Join-Path $usersTomlDir 'users.toml'
+    New-Item -ItemType Directory -Force -Path $usersTomlDir | Out-Null
+    if (-not (Test-Path $usersTomlPath)) {
+        Write-Host "      NOTE users.toml not present yet — an admin must run grant-user-access.ps1" -ForegroundColor Yellow
+        Write-Host "           to deploy it to: $usersTomlPath" -ForegroundColor Yellow
+    } else {
+        Write-Host "      OK   users.toml found at $usersTomlPath" -ForegroundColor Green
     }
 
     # 5. Company MCP config -> %APPDATA%\Claude\claude_desktop_config.json
@@ -209,6 +223,7 @@ try {
             args    = @($chaseInternalServer)
             env     = [pscustomobject]@{
                 CHASE_INTERNAL_USER = $User
+                CHASE_USERS_TOML    = $usersTomlPath
             }
         }
     }
@@ -230,8 +245,11 @@ try {
             Write-Host "      WARN existing config unparseable -- replacing" -ForegroundColor Yellow
         }
     }
-    [pscustomobject]@{ mcpServers = $merged } | ConvertTo-Json -Depth 10 | Out-File $cfgPath -Encoding UTF8 -Force
-    Write-Host "      OK   wrote $cfgPath" -ForegroundColor Green
+    # Write WITHOUT BOM -- PowerShell 5.1 Out-File -Encoding UTF8 adds a BOM that
+    # Claude Desktop's JSON parser rejects. Use .NET WriteAllText with explicit no-BOM encoder.
+    $cfgJson = [pscustomobject]@{ mcpServers = $merged } | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText($cfgPath, $cfgJson, (New-Object System.Text.UTF8Encoding $false))
+    Write-Host "      OK   wrote $cfgPath (UTF-8, no BOM)" -ForegroundColor Green
     Write-Host "           - ms-365         (Microsoft 365: mail, calendar, SharePoint, OneDrive)" -ForegroundColor DarkGray
     Write-Host "           - chase-internal (Phase 5 corpus access)" -ForegroundColor DarkGray
     if ($User) {
@@ -279,10 +297,11 @@ try {
     Write-Host ""
     Write-Host "Phase 5 (corpus access) note:" -ForegroundColor White
     Write-Host "  The chase-internal MCP is installed. To USE it, you also need:" -ForegroundColor DarkGray
-    Write-Host "    - 'az login' once (so Python can pull the SQL creds from Key Vault), and" -ForegroundColor DarkGray
-    Write-Host "    - Chase to grant you 'Key Vault Secrets User' on kv-chase-cowork-5f74" -ForegroundColor DarkGray
-    Write-Host "      and read access on the chasecowork-audit database." -ForegroundColor DarkGray
-    Write-Host "  Until those are in place the corpus queries return 'Access denied'." -ForegroundColor DarkGray
+    Write-Host "    1. Run: az login   (sign in as yourself — NOT the admin account)" -ForegroundColor DarkGray
+    Write-Host "    2. Chase must run: bootstrap\grant-user-access.ps1 -User $User" -ForegroundColor DarkGray
+    Write-Host "       (grants Key Vault access policy + SQL db_datareader + deploys users.toml)" -ForegroundColor DarkGray
+    Write-Host "  NOTE: Key Vault uses ACCESS POLICY mode. An RBAC role will NOT work." -ForegroundColor Yellow
+    Write-Host "  Until those steps are done corpus queries return 'Access denied'." -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "Try asking:" -ForegroundColor White
     Write-Host '  "What is on my calendar today?"' -ForegroundColor DarkGray
