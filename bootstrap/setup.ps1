@@ -136,14 +136,35 @@ New-Item -ItemType Directory -Force -Path (Join-Path $UserClaudeDir 'skills') | 
 New-Item -ItemType Directory -Force -Path (Join-Path $UserClaudeDir 'commands') | Out-Null
 Write-Ok 'User config directory ready'
 
-Write-Step 'Mirroring claude-config/ into ~/.claude/'
-robocopy $ClaudeConfig $UserClaudeDir /MIR /XO /NJH /NJS /NDL /NP /NFL /R:1 /W:1 | Out-Null
-$rc = $LASTEXITCODE
-if ($rc -ge 8) {
-    Write-Err "robocopy failed with code $rc"
-    exit 1
+Write-Step 'Mirroring claude-config/ into ~/.claude/ (preserves Claude Code state)'
+
+# Copy top-level files individually. Don't /MIR the user's ~/.claude/ root -
+# Claude Code keeps projects/, agents/, conversation history etc. there and
+# /MIR would delete all of them.
+foreach ($f in @('CLAUDE.md', 'settings.json', 'mcp-servers.json')) {
+    $srcFile = Join-Path $ClaudeConfig $f
+    if (Test-Path $srcFile) {
+        Copy-Item $srcFile (Join-Path $UserClaudeDir $f) -Force
+    }
 }
-Write-Ok 'Config mirrored'
+
+# /MIR is OK *inside* company-managed subdirectories - stale agents/skills/
+# commands SHOULD be cleaned up when they're removed from the config.
+foreach ($sub in @('subagents', 'skills', 'commands')) {
+    $srcDir = Join-Path $ClaudeConfig $sub
+    $dstDir = Join-Path $UserClaudeDir $sub
+    if (Test-Path $srcDir) {
+        if (-not (Test-Path $dstDir)) {
+            New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+        }
+        robocopy $srcDir $dstDir /MIR /NJH /NJS /NDL /NP /NFL /R:1 /W:1 | Out-Null
+        if ($LASTEXITCODE -ge 8) {
+            Write-Err "robocopy $sub failed with code $LASTEXITCODE"
+            exit 1
+        }
+    }
+}
+Write-Ok 'Config mirrored (top-level files copied, subagents/skills/commands /MIR-synced)'
 
 # ─── 6. Install pinned Softeria MS-365 MCP server ───────────────────────────
 Write-Step "Installing ms-365-mcp-server@$($versions.ms_365_mcp_server)"
