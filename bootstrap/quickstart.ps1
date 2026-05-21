@@ -20,7 +20,11 @@
 
 [CmdletBinding()]
 param(
-    # Override these if you ever fork the public mirror.
+    # Pass -IncludeClaudeCode to also install Claude Code (CLI) for power users.
+    # Default is Claude Desktop only.
+    [switch]$IncludeClaudeCode,
+
+    # Overrides for fork / mirror scenarios.
     [string]$BundleUrl     = 'https://github.com/grantdozier/claude-cowork-public/archive/refs/heads/main.zip',
     [string]$InstallRoot   = (Join-Path $env:LOCALAPPDATA 'chase-cowork\install')
 )
@@ -105,7 +109,14 @@ try {
 
     # --- 3. Run setup.ps1 --------------------------------------------------
     Show-Banner "Installing platform" 'Cyan'
-    & $setupPath
+    if ($IncludeClaudeCode) {
+        Write-Host "Mode: HYBRID (Claude Desktop + Claude Code CLI)" -ForegroundColor White
+        & $setupPath -IncludeClaudeCode
+    } else {
+        Write-Host "Mode: DESKTOP (Claude Desktop only - default)" -ForegroundColor White
+        Write-Host "To also install Claude Code CLI for power-user workflows, rerun with -IncludeClaudeCode." -ForegroundColor DarkGray
+        & $setupPath
+    }
     $setupExit = $LASTEXITCODE
 
     if ($setupExit -and $setupExit -ne 0) {
@@ -122,25 +133,27 @@ try {
     # --- 5. Next steps -----------------------------------------------------
     if ($verifyExit -eq 0) {
         Show-Banner "Ready to use" 'Green'
-        Write-Host "Three things to do next:" -ForegroundColor White
+        Write-Host "Open Claude Desktop and sign in:" -ForegroundColor White
         Write-Host ""
-        Write-Host "  1. Close this PowerShell window."
-        Write-Host "  2. Open a NEW PowerShell or Terminal window."
-        Write-Host "     (Important - it needs to be new so it picks up the new programs.)"
-        Write-Host "  3. Type: " -NoNewline
-        Write-Host "claude" -ForegroundColor Yellow
-        Write-Host "     Sign in with your @chasegroupcc.com account when asked."
-        Write-Host "  4. Once Claude is running, type: " -NoNewline
-        Write-Host "/onboard" -ForegroundColor Yellow
-        Write-Host "     This runs a first-time health check (M365 sign-in, mailbox,"
-        Write-Host "     calendar, SharePoint, personal folder) and tells you if"
-        Write-Host "     anything needs Chase's attention."
+        Write-Host "  1. Click the " -NoNewline
+        Write-Host "Claude" -ForegroundColor Yellow -NoNewline
+        Write-Host " icon (Start menu or desktop)."
+        Write-Host "  2. Sign in with your Anthropic account."
+        Write-Host "     If you don't have one, the app will walk you through it."
+        Write-Host "     Use your @chasegroupcc.com email when it prompts."
+        Write-Host "  3. The first time you ask Claude about your mail / calendar /"
+        Write-Host "     SharePoint, a Microsoft sign-in pops up. Approve it with"
+        Write-Host "     your @chasegroupcc.com account."
+        Write-Host "  4. Try asking Claude:" -ForegroundColor White
+        Write-Host '       "What is on my calendar today?"' -ForegroundColor DarkGray
+        Write-Host '       "Find emails from Mitchell Rotolo about FPK this week."' -ForegroundColor DarkGray
+        Write-Host '       "Show me what is in the 25-116 800 E Farrel folder."' -ForegroundColor DarkGray
         Write-Host ""
-        Write-Host "After that, try asking Claude things like:" -ForegroundColor White
-        Write-Host '  "What''s on my calendar today?"'
-        Write-Host '  "Find emails from Mitchell Rotolo about FPK this week."'
-        Write-Host '  "Show me what''s in the 25-116 800 E Farrel folder."'
-        Write-Host ""
+        if ($IncludeClaudeCode) {
+            Write-Host "Claude Code CLI is also installed for power-user workflows." -ForegroundColor White
+            Write-Host "  Open a NEW terminal, type 'claude', sign in, then '/onboard'." -ForegroundColor DarkGray
+            Write-Host ""
+        }
         Write-Host "Need help? Message Chase."
         Pause-And-Exit 0
     } else {
