@@ -96,8 +96,8 @@ if (Test-Path $cacheDir) {
 
 # Report
 Write-Host ""
-Write-Host "Chase Cowork — Health Check" -ForegroundColor White
-Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor White
+Write-Host "Chase Cowork - Health Check" -ForegroundColor White
+Write-Host "=======================================================" -ForegroundColor White
 $results | Format-Table -AutoSize
 
 $fails = ($results | Where-Object Status -eq 'FAIL').Count

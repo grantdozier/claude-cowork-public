@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Chase Cowork — one-time platform installer for a Chase Group employee laptop.
+    Chase Cowork - one-time platform installer for a Chase Group employee laptop.
 
 .DESCRIPTION
     Idempotent. Re-running upgrades versions and reapplies config.
@@ -8,11 +8,10 @@
 
 .NOTES
     Hard rule: this script must work on a clean Windows install with no prior
-    Claude/Python/Node. Every paper cut found during Phase 2 dogfood gets fixed here.
+    Claude/Python/Node. Every paper cut found during dogfood gets fixed here.
 
-.EXAMPLE
-    Run from a synced SharePoint claude-cowork folder:
-      C:\...\Chase Group Files\4. MISCELLANEOUS\Claude\claude-cowork\bootstrap\setup.ps1
+    ASCII-only on purpose - PowerShell 5.1 reads files without BOM in the
+    system codepage, so Unicode em-dashes / box-drawing chars get corrupted.
 #>
 
 [CmdletBinding()]
@@ -23,35 +22,32 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ─── ANTIVIRUS NOTE (READ BEFORE RUNNING) ───────────────────────────────────
+# --- ANTIVIRUS NOTE (READ BEFORE RUNNING) -----------------------------------
 # This installer uses winget + npm to install Python, Node, Git, uv, Claude Code,
 # and the Microsoft 365 MCP server. Some antivirus tools may flag PowerShell-based
 # dependency installation that pulls packages over the network.
 #
 # Before you "Allow" or "Run anyway":
-#   1. Verify the script path you launched matches:
-#      ...\Chase Group Files\4. MISCELLANEOUS\Claude\claude-cowork\bootstrap\setup.ps1
-#   2. The script is read-only on SharePoint — only Chase and Grant can edit it.
-#      Confirm with Chase if anyone asks you to run a different copy.
-#   3. The script does NOT download arbitrary executables — only the pinned
+#   1. Verify the script was downloaded from the official quickstart URL:
+#      https://gist.githubusercontent.com/grantdozier/d940862d23d72cb71cecc3d2d35a36bc/raw/quickstart.ps1
+#   2. The script does NOT download arbitrary executables - only the pinned
 #      versions in bootstrap\versions.json from official sources (winget +
 #      npmjs.org). If you see anything else, stop and tell Chase.
 #
 # Long-term: the company is moving toward MDM-pushed installs (Intune / Autopilot)
-# so individual employees won't need to run any script directly. See
-# PH-107 in the placeholders ledger.
-# ────────────────────────────────────────────────────────────────────────────
+# so individual employees won't need to run any script directly. See PH-107.
+# ----------------------------------------------------------------------------
 
-# ─── Paths ──────────────────────────────────────────────────────────────────
+# --- Paths ------------------------------------------------------------------
 $BootstrapDir   = $PSScriptRoot
 $CoworkRoot     = Split-Path $BootstrapDir -Parent
 $ClaudeConfig   = Join-Path $CoworkRoot 'claude-config'
 $VersionsPath   = Join-Path $BootstrapDir 'versions.json'
 $UserClaudeDir  = Join-Path $env:USERPROFILE '.claude'
 
-# ─── Helpers ────────────────────────────────────────────────────────────────
-function Write-Step ([string]$msg) { Write-Host "  ► $msg" -ForegroundColor Cyan }
-function Write-Ok   ([string]$msg) { Write-Host "    OK  $msg" -ForegroundColor Green }
+# --- Helpers ----------------------------------------------------------------
+function Write-Step ([string]$msg) { Write-Host "  > $msg" -ForegroundColor Cyan }
+function Write-Ok   ([string]$msg) { Write-Host "    OK   $msg" -ForegroundColor Green }
 function Write-Warn ([string]$msg) { Write-Host "    WARN $msg" -ForegroundColor Yellow }
 function Write-Err  ([string]$msg) { Write-Host "    ERR  $msg" -ForegroundColor Red }
 
@@ -59,15 +55,31 @@ function Test-CommandExists ([string]$name) {
     $null -ne (Get-Command $name -ErrorAction SilentlyContinue)
 }
 
-# ─── 0. Banner ──────────────────────────────────────────────────────────────
+# Run a native command without 2>&1. PowerShell 5.1 wraps a native command's
+# stderr lines as ErrorRecord objects, and with $ErrorActionPreference='Stop'
+# those terminate the script even when the command exited 0 (e.g. npm warns).
+# This helper runs the command with EAP=Continue around it and returns the
+# exit code so the caller can decide what to do.
+function Invoke-Native ([scriptblock]$cmd) {
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $cmd
+        return $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+}
+
+# --- 0. Banner --------------------------------------------------------------
 Write-Host ""
-Write-Host "Chase Cowork — Platform Setup" -ForegroundColor White
-Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor White
+Write-Host "Chase Cowork - Platform Setup" -ForegroundColor White
+Write-Host "=======================================================" -ForegroundColor White
 Write-Host "Bootstrap dir : $BootstrapDir"
 Write-Host "User config   : $UserClaudeDir"
 Write-Host ""
 
-# ─── 1. Verify the bundle is intact ─────────────────────────────────────────
+# --- 1. Verify the bundle is intact -----------------------------------------
 Write-Step 'Verifying bundle integrity'
 if (-not (Test-Path (Join-Path $ClaudeConfig 'CLAUDE.md'))) {
     Write-Err "claude-config/CLAUDE.md is missing at $ClaudeConfig"
@@ -76,39 +88,39 @@ if (-not (Test-Path (Join-Path $ClaudeConfig 'CLAUDE.md'))) {
 }
 Write-Ok 'claude-cowork/ contents present'
 
-# ─── 2. Read versions ───────────────────────────────────────────────────────
+# --- 2. Read versions -------------------------------------------------------
 Write-Step "Reading pinned versions from versions.json"
 $versions = Get-Content $VersionsPath -Raw | ConvertFrom-Json
 Write-Ok "claude_code = $($versions.claude_code), python = $($versions.python), ms_365_mcp_server = $($versions.ms_365_mcp_server)"
 
-# ─── 3. Prereqs via winget ──────────────────────────────────────────────────
+# --- 3. Prereqs via winget --------------------------------------------------
 if (-not $SkipPrereqs) {
     Write-Step "Verifying prereqs (Python, Node, Git, uv)"
 
     if (-not (Test-CommandExists 'python')) {
-        Write-Warn 'Python not found — installing Python 3.11 via winget'
-        winget install --id Python.Python.3.11 --silent --accept-source-agreements --accept-package-agreements | Out-Null
+        Write-Warn 'Python not found - installing Python 3.11 via winget'
+        $null = Invoke-Native { winget install --id Python.Python.3.11 --silent --accept-source-agreements --accept-package-agreements }
     } else {
         Write-Ok ('Python: ' + (python --version 2>&1))
     }
 
     if (-not (Test-CommandExists 'node')) {
-        Write-Warn 'Node not found — installing Node 20 via winget'
-        winget install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements | Out-Null
+        Write-Warn 'Node not found - installing Node 20 via winget'
+        $null = Invoke-Native { winget install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements }
     } else {
         Write-Ok ('Node: ' + (node --version))
     }
 
     if (-not (Test-CommandExists 'git')) {
-        Write-Warn 'Git not found — installing Git via winget'
-        winget install --id Git.Git --silent --accept-source-agreements --accept-package-agreements | Out-Null
+        Write-Warn 'Git not found - installing Git via winget'
+        $null = Invoke-Native { winget install --id Git.Git --silent --accept-source-agreements --accept-package-agreements }
     } else {
         Write-Ok ('Git: ' + ((git --version) -replace 'git version ', ''))
     }
 
     if (-not (Test-CommandExists 'uv')) {
-        Write-Warn 'uv not found — installing'
-        winget install --id astral-sh.uv --silent --accept-source-agreements --accept-package-agreements | Out-Null
+        Write-Warn 'uv not found - installing'
+        $null = Invoke-Native { winget install --id astral-sh.uv --silent --accept-source-agreements --accept-package-agreements }
     } else {
         Write-Ok ('uv: ' + (uv --version))
     }
@@ -116,11 +128,11 @@ if (-not $SkipPrereqs) {
     Write-Warn 'Skipping prereqs (-SkipPrereqs)'
 }
 
-# ─── 4. Claude Code ─────────────────────────────────────────────────────────
+# --- 4. Claude Code ---------------------------------------------------------
 Write-Step 'Verifying Claude Code installation'
 if (-not (Test-CommandExists 'claude')) {
-    Write-Warn 'Claude Code not found — installing via npm'
-    npm install -g @anthropic-ai/claude-code 2>&1 | Out-Null
+    Write-Warn 'Claude Code not found - installing via npm'
+    $null = Invoke-Native { npm install -g @anthropic-ai/claude-code }
     if (-not (Test-CommandExists 'claude')) {
         Write-Err 'Claude Code install failed. Install manually and rerun.'
         exit 1
@@ -128,7 +140,7 @@ if (-not (Test-CommandExists 'claude')) {
 }
 Write-Ok ('Claude Code: ' + (claude --version 2>&1))
 
-# ─── 5. ~/.claude/ user config ──────────────────────────────────────────────
+# --- 5. ~/.claude/ user config ----------------------------------------------
 Write-Step "Creating $UserClaudeDir"
 New-Item -ItemType Directory -Force -Path $UserClaudeDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $UserClaudeDir 'subagents') | Out-Null
@@ -157,40 +169,37 @@ foreach ($sub in @('subagents', 'skills', 'commands')) {
         if (-not (Test-Path $dstDir)) {
             New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
         }
-        robocopy $srcDir $dstDir /MIR /NJH /NJS /NDL /NP /NFL /R:1 /W:1 | Out-Null
-        if ($LASTEXITCODE -ge 8) {
-            Write-Err "robocopy $sub failed with code $LASTEXITCODE"
+        $rcExit = Invoke-Native { robocopy $srcDir $dstDir /MIR /NJH /NJS /NDL /NP /NFL /R:1 /W:1 }
+        if ($rcExit -ge 8) {
+            Write-Err "robocopy $sub failed with code $rcExit"
             exit 1
         }
     }
 }
 Write-Ok 'Config mirrored (top-level files copied, subagents/skills/commands /MIR-synced)'
 
-# ─── 6. Install pinned Softeria MS-365 MCP server ───────────────────────────
+# --- 6. Install pinned Softeria MS-365 MCP server ---------------------------
 Write-Step "Installing ms-365-mcp-server@$($versions.ms_365_mcp_server)"
 $mcpPkg = "@softeria/ms-365-mcp-server@$($versions.ms_365_mcp_server)"
-$installResult = npm install -g $mcpPkg 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "npm global install returned exit code $LASTEXITCODE"
-    Write-Host $installResult
+$mcpExit = Invoke-Native { npm install -g $mcpPkg }
+if ($mcpExit -ne 0) {
+    Write-Warn "npm install returned exit code $mcpExit (warnings above are OK as long as exit code is 0)"
 } else {
     Write-Ok "MS-365 MCP installed at pinned version"
 }
 
-# ─── 7. Per-user token cache path ───────────────────────────────────────────
+# --- 7. Per-user token cache path -------------------------------------------
 $mcpCacheDir = Join-Path $env:LOCALAPPDATA 'chase-cowork'
 New-Item -ItemType Directory -Force -Path $mcpCacheDir | Out-Null
 
-# ─── 8. Sign-in hint ────────────────────────────────────────────────────────
+# --- 8. Sign-in hint --------------------------------------------------------
 Write-Host ""
-Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor White
+Write-Host "=======================================================" -ForegroundColor White
 Write-Host "Setup complete." -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor White
-Write-Host "  1. Open a new terminal."
-Write-Host "  2. Run: claude"
-Write-Host "  3. When prompted, sign in to Microsoft 365 with your @chasegroupcc.com account."
-Write-Host ""
-Write-Host "Verify the install at any time:"
-Write-Host "  $($BootstrapDir)\verify.ps1"
+Write-Host "  1. Open a NEW terminal window (so PATH refreshes)."
+Write-Host "  2. Run: " -NoNewline
+Write-Host "claude" -ForegroundColor Yellow
+Write-Host "  3. Sign in to Microsoft 365 with your @chasegroupcc.com account."
 Write-Host ""
