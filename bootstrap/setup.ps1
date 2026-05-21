@@ -157,13 +157,24 @@ if (-not $desktopInstalled) {
 Write-Step "Writing Claude Desktop MCP config to $DesktopConfigPath"
 New-Item -ItemType Directory -Force -Path $DesktopAppData | Out-Null
 
-# Load template, expand path sentinels
-$configContent = Get-Content $ConfigTemplate -Raw
-$configContent = $configContent -replace '__LOCAL_APP_DATA__', ($env:LOCALAPPDATA -replace '\\', '\\\\')
+# Parse template into objects FIRST, then substitute sentinels on the string
+# values directly. This avoids JSON double-escaping the backslashes in paths.
+$companyConfig = Get-Content $ConfigTemplate -Raw | ConvertFrom-Json
 
-# Parse template + merge with any existing user-added MCP servers
-$companyConfig = $configContent | ConvertFrom-Json
-$mergedServers = @{}
+# Walk env values and substitute path sentinels
+foreach ($srv in $companyConfig.mcpServers.PSObject.Properties) {
+    if ($srv.Value.env) {
+        foreach ($envProp in $srv.Value.env.PSObject.Properties) {
+            $val = $envProp.Value
+            if ($val -is [string] -and $val -match '__LOCAL_APP_DATA__') {
+                $envProp.Value = $val.Replace('__LOCAL_APP_DATA__', $env:LOCALAPPDATA)
+            }
+        }
+    }
+}
+
+# Merge with any existing user-added MCP servers (don't clobber user customizations)
+$mergedServers = [ordered]@{}
 foreach ($prop in $companyConfig.mcpServers.PSObject.Properties) {
     $mergedServers[$prop.Name] = $prop.Value
 }
@@ -174,7 +185,7 @@ if (Test-Path $DesktopConfigPath) {
         if ($existing.mcpServers) {
             foreach ($prop in $existing.mcpServers.PSObject.Properties) {
                 # Don't overwrite the company-managed servers
-                if (-not $mergedServers.ContainsKey($prop.Name)) {
+                if (-not $mergedServers.Contains($prop.Name)) {
                     $mergedServers[$prop.Name] = $prop.Value
                 }
             }
@@ -184,7 +195,7 @@ if (Test-Path $DesktopConfigPath) {
     }
 }
 
-$finalConfig = @{ mcpServers = $mergedServers }
+$finalConfig = [pscustomobject]@{ mcpServers = $mergedServers }
 $finalConfig | ConvertTo-Json -Depth 10 | Out-File $DesktopConfigPath -Encoding UTF8 -Force
 Write-Ok 'Claude Desktop config deployed (company MCP servers merged with any existing user entries)'
 
