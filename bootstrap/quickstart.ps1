@@ -1,35 +1,50 @@
 <#
 .SYNOPSIS
-    Chase Cowork - one-button bootstrap for Chase Group Construction employees.
+    Chase Cowork -- minimal install.
 
 .DESCRIPTION
-    Truly self-contained. Downloads the public bootstrap bundle from
-    GitHub, extracts it locally, runs the installer. No SharePoint sync,
-    no OneDrive shortcuts, no preconditions other than internet access.
+    What this does:
+      1. Installs Node.js (needed by the Microsoft 365 MCP server)
+      2. Installs Claude Desktop via winget
+      3. Writes %APPDATA%\Claude\claude_desktop_config.json with the
+         company's MCP server bindings (Microsoft 365 today; Chase
+         Internal MCP will be added when Phase 5 ships)
+      4. Pre-installs the MS-365 MCP npm package so first launch is fast
 
-    Resilient by design:
-      - Window never closes silently. Always Read-Host pauses at the end.
-      - All output (including errors) is logged to Desktop\cowork-install.log.
-      - Any unhandled error is caught, printed, and the log path surfaced.
+    What this does NOT do (intentionally):
+      - Does not download agent prompts. Agents are distributed via the
+        Anthropic Team workspace as shared Projects. Sign in, see them.
+      - Does not copy SharePoint files. SharePoint stays the source of
+        truth for SOPs / project knowledge; Claude reads them through
+        the MS-365 MCP at runtime.
+      - Does not install Claude Code (CLI). Add -IncludeClaudeCode for
+        the power-user CLI install in addition.
+
+.PARAMETER IncludeClaudeCode
+    Also install Claude Code (CLI) - the agentic terminal interface.
+    Use for: Chase, Alex, anyone running multi-step agentic workflows.
 
 .NOTES
-    Distributed via public Gist; pasted by Chase into a Teams chat.
-    Source of truth for the bundle: https://github.com/grantdozier/claude-cowork-public
-    The script itself contains no secrets - safe to host publicly.
+    Distributed via public Gist:
+      https://gist.github.com/grantdozier/d940862d23d72cb71cecc3d2d35a36bc
+    The one-liner Chase sends to new employees:
+      iex "& { $(irm 'https://gist.githubusercontent.com/grantdozier/d940862d23d72cb71cecc3d2d35a36bc/raw/quickstart.ps1') }"
+
+    Resilient by design:
+      - Window never closes silently. Read-Host pauses at every exit path.
+      - Full transcript saved to Desktop\cowork-install.log.
+      - All native command calls (winget, npm) wrapped to survive PS 5.1's
+        $ErrorActionPreference='Stop' + stderr-as-error interaction.
 #>
 
 [CmdletBinding()]
 param(
-    # Pass -IncludeClaudeCode to also install Claude Code (CLI) for power users.
-    # Default is Claude Desktop only.
-    [switch]$IncludeClaudeCode,
-
-    # Overrides for fork / mirror scenarios.
-    [string]$BundleUrl     = 'https://github.com/grantdozier/claude-cowork-public/archive/refs/heads/main.zip',
-    [string]$InstallRoot   = (Join-Path $env:LOCALAPPDATA 'chase-cowork\install')
+    [switch]$IncludeClaudeCode
 )
 
-# --- Always log everything ---------------------------------------------------
+$ErrorActionPreference = 'Stop'
+
+# --- Transcript log ---------------------------------------------------------
 $LogPath = Join-Path $env:USERPROFILE 'Desktop\cowork-install.log'
 $transcriptStarted = $false
 try {
@@ -39,15 +54,7 @@ try {
     Write-Host "(transcript could not start: $($_.Exception.Message))" -ForegroundColor DarkYellow
 }
 
-# --- Helpers -----------------------------------------------------------------
-function Show-Banner ([string]$msg, [string]$color = 'White') {
-    Write-Host ""
-    Write-Host "================================================" -ForegroundColor $color
-    Write-Host " $msg" -ForegroundColor $color
-    Write-Host "================================================" -ForegroundColor $color
-    Write-Host ""
-}
-
+# --- Helpers ----------------------------------------------------------------
 function Pause-And-Exit ([int]$code = 0) {
     Write-Host ""
     if ($transcriptStarted) {
@@ -61,117 +68,169 @@ function Pause-And-Exit ([int]$code = 0) {
     exit $code
 }
 
-# --- Main --------------------------------------------------------------------
+function Invoke-Native ([scriptblock]$cmd) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $cmd; return $LASTEXITCODE } finally { $ErrorActionPreference = $prev }
+}
+
+function Test-CommandExists ([string]$name) {
+    $null -ne (Get-Command $name -ErrorAction SilentlyContinue)
+}
+
+# --- Main -------------------------------------------------------------------
 try {
-    Show-Banner "Chase Cowork - Quick Start"
-    Write-Host "Sets up Claude Code on your laptop with the company configuration." -ForegroundColor White
-    Write-Host "Takes about 5 minutes. Windows may prompt you to allow installs - say yes." -ForegroundColor DarkGray
     Write-Host ""
-
-    # --- 1. Download the public bootstrap bundle ---------------------------
-    Write-Host "Downloading the latest bootstrap bundle..." -ForegroundColor White
-    Write-Host "  Source: $BundleUrl" -ForegroundColor DarkGray
-
-    $zipPath = Join-Path $env:TEMP 'chase-cowork-bundle.zip'
-    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-
-    # Use TLS 1.2 explicitly (older PowerShell defaults are weaker)
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-
-    Invoke-WebRequest -Uri $BundleUrl -OutFile $zipPath -UseBasicParsing
-    $zipSize = (Get-Item $zipPath).Length
-    Write-Host "  [OK] Downloaded $zipSize bytes" -ForegroundColor Green
-
-    # --- 2. Extract -------------------------------------------------------
-    Write-Host "Extracting to $InstallRoot..." -ForegroundColor White
-    if (Test-Path $InstallRoot) {
-        Remove-Item $InstallRoot -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
-
-    Expand-Archive -Path $zipPath -DestinationPath $InstallRoot -Force
-    Remove-Item $zipPath -Force
-
-    # GitHub zips wrap content in a folder like claude-cowork-public-main/
-    $extractedRoot = Get-ChildItem $InstallRoot -Directory | Select-Object -First 1
-    if (-not $extractedRoot) {
-        throw "Bundle extracted but no top-level folder found inside $InstallRoot"
-    }
-    $coworkRoot = $extractedRoot.FullName
-    Write-Host "  [OK] Extracted to: $coworkRoot" -ForegroundColor Green
-
-    $setupPath  = Join-Path $coworkRoot 'bootstrap\setup.ps1'
-    $verifyPath = Join-Path $coworkRoot 'bootstrap\verify.ps1'
-
-    if (-not (Test-Path $setupPath)) {
-        throw "setup.ps1 not found at $setupPath - bundle structure unexpected"
-    }
-
-    # --- 3. Run setup.ps1 --------------------------------------------------
-    Show-Banner "Installing platform" 'Cyan'
+    Write-Host "Chase Cowork - Install" -ForegroundColor White
+    Write-Host "======================" -ForegroundColor White
     if ($IncludeClaudeCode) {
         Write-Host "Mode: HYBRID (Claude Desktop + Claude Code CLI)" -ForegroundColor White
-        & $setupPath -IncludeClaudeCode
     } else {
         Write-Host "Mode: DESKTOP (Claude Desktop only - default)" -ForegroundColor White
-        Write-Host "To also install Claude Code CLI for power-user workflows, rerun with -IncludeClaudeCode." -ForegroundColor DarkGray
-        & $setupPath
     }
-    $setupExit = $LASTEXITCODE
+    Write-Host "Takes ~3 minutes. Windows may ask for permission to install programs - say yes." -ForegroundColor DarkGray
+    Write-Host ""
 
-    if ($setupExit -and $setupExit -ne 0) {
-        Show-Banner "Installer reported issues" 'Yellow'
-        Write-Host "Scroll up and read the messages. Most of the time, re-running fixes it."
-        Pause-And-Exit $setupExit
-    }
-
-    # --- 4. Run verify.ps1 -------------------------------------------------
-    Show-Banner "Health check" 'Cyan'
-    & $verifyPath
-    $verifyExit = $LASTEXITCODE
-
-    # --- 5. Next steps -----------------------------------------------------
-    if ($verifyExit -eq 0) {
-        Show-Banner "Ready to use" 'Green'
-        Write-Host "Open Claude Desktop and sign in:" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  1. Click the " -NoNewline
-        Write-Host "Claude" -ForegroundColor Yellow -NoNewline
-        Write-Host " icon (Start menu or desktop)."
-        Write-Host "  2. Sign in with your Anthropic account."
-        Write-Host "     If you don't have one, the app will walk you through it."
-        Write-Host "     Use your @chasegroupcc.com email when it prompts."
-        Write-Host "  3. The first time you ask Claude about your mail / calendar /"
-        Write-Host "     SharePoint, a Microsoft sign-in pops up. Approve it with"
-        Write-Host "     your @chasegroupcc.com account."
-        Write-Host "  4. Try asking Claude:" -ForegroundColor White
-        Write-Host '       "What is on my calendar today?"' -ForegroundColor DarkGray
-        Write-Host '       "Find emails from Mitchell Rotolo about FPK this week."' -ForegroundColor DarkGray
-        Write-Host '       "Show me what is in the 25-116 800 E Farrel folder."' -ForegroundColor DarkGray
-        Write-Host ""
-        if ($IncludeClaudeCode) {
-            Write-Host "Claude Code CLI is also installed for power-user workflows." -ForegroundColor White
-            Write-Host "  Open a NEW terminal, type 'claude', sign in, then '/onboard'." -ForegroundColor DarkGray
-            Write-Host ""
+    # 1. Node.js (required by the Softeria MS-365 MCP server)
+    Write-Host "[1/4] Verifying Node.js..." -ForegroundColor Cyan
+    if (-not (Test-CommandExists 'node')) {
+        Write-Host "      Installing Node 20 LTS via winget..." -ForegroundColor Yellow
+        $null = Invoke-Native { winget install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements }
+        # Refresh PATH so we can use npm in this same session
+        $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+        if (-not (Test-CommandExists 'node')) {
+            Write-Host "      ERR  Node still not on PATH after install. Open a new PowerShell window and re-run." -ForegroundColor Red
+            Pause-And-Exit 1
         }
-        Write-Host "Need help? Message Chase."
-        Pause-And-Exit 0
-    } else {
-        Show-Banner "Some checks failed" 'Yellow'
-        Write-Host "Scroll up to see what didn't pass."
-        Write-Host "Re-running this quickstart often fixes it."
-        Write-Host "If not, send Chase the log file from Desktop\cowork-install.log."
-        Pause-And-Exit $verifyExit
     }
+    Write-Host "      OK   Node $(node --version)" -ForegroundColor Green
+
+    # 2. Claude Desktop
+    Write-Host "[2/4] Verifying Claude Desktop..." -ForegroundColor Cyan
+    $desktopInstalled = $false
+    try {
+        $check = & winget list --id Anthropic.Claude --accept-source-agreements 2>$null | Out-String
+        if ($check -match 'Anthropic.Claude') { $desktopInstalled = $true }
+    } catch { }
+
+    if (-not $desktopInstalled) {
+        Write-Host "      Installing Claude Desktop via winget..." -ForegroundColor Yellow
+        $null = Invoke-Native { winget install --id Anthropic.Claude --silent --accept-source-agreements --accept-package-agreements }
+        Write-Host "      OK   Claude Desktop installed" -ForegroundColor Green
+    } else {
+        Write-Host "      OK   already installed" -ForegroundColor Green
+    }
+
+    # 3. Company MCP config -> %APPDATA%\Claude\claude_desktop_config.json
+    Write-Host "[3/4] Configuring Claude Desktop with company cloud connections..." -ForegroundColor Cyan
+    $cfgDir   = Join-Path $env:APPDATA 'Claude'
+    $cfgPath  = Join-Path $cfgDir 'claude_desktop_config.json'
+    $cacheDir = Join-Path $env:LOCALAPPDATA 'chase-cowork'
+    $tokenPath = Join-Path $cacheDir 'ms365-token-cache.json'
+    New-Item -ItemType Directory -Force -Path $cfgDir   | Out-Null
+    New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+
+    # Build the company's MCP servers (parsed as objects so ConvertTo-Json
+    # handles JSON escaping once, no backslash double-escape).
+    $companyServers = [ordered]@{
+        'ms-365' = [pscustomobject]@{
+            command = 'npx'
+            args    = @('-y', '@softeria/ms-365-mcp-server@0.107.2', '--org-mode')
+            env     = [pscustomobject]@{
+                MS365_MCP_CLIENT_ID        = 'e2b1eeec-0b7b-4238-8bac-92007530bd31'
+                MS365_MCP_TENANT_ID        = 'afbb8ea1-0e42-4f9a-b3d8-6fc556a1ea38'
+                MS365_MCP_TOKEN_CACHE_PATH = $tokenPath
+            }
+        }
+        # Future: 'chase-internal' added here when Phase 5 ships.
+    }
+
+    # Merge with any user-added servers without clobbering them
+    $merged = [ordered]@{}
+    foreach ($k in $companyServers.Keys) { $merged[$k] = $companyServers[$k] }
+    if (Test-Path $cfgPath) {
+        try {
+            $existing = Get-Content $cfgPath -Raw | ConvertFrom-Json
+            if ($existing.mcpServers) {
+                foreach ($prop in $existing.mcpServers.PSObject.Properties) {
+                    if (-not $merged.Contains($prop.Name)) {
+                        $merged[$prop.Name] = $prop.Value
+                    }
+                }
+            }
+        } catch {
+            Write-Host "      WARN existing config unparseable -- replacing" -ForegroundColor Yellow
+        }
+    }
+    [pscustomobject]@{ mcpServers = $merged } | ConvertTo-Json -Depth 10 | Out-File $cfgPath -Encoding UTF8 -Force
+    Write-Host "      OK   $cfgPath" -ForegroundColor Green
+
+    # 4. Pre-install MS-365 MCP package for fast first launch
+    Write-Host "[4/4] Pre-installing Microsoft 365 connector..." -ForegroundColor Cyan
+    $mcpExit = Invoke-Native { npm install -g '@softeria/ms-365-mcp-server@0.107.2' }
+    if ($mcpExit -ne 0) {
+        Write-Host "      WARN npm exit code $mcpExit (deprecation warnings are usually fine)" -ForegroundColor Yellow
+    } else {
+        Write-Host "      OK   cached for fast first launch" -ForegroundColor Green
+    }
+
+    # Optional: Claude Code (CLI) for power users
+    if ($IncludeClaudeCode) {
+        Write-Host ""
+        Write-Host "[+] Installing Claude Code (CLI, power-user mode)..." -ForegroundColor Cyan
+        if (-not (Test-CommandExists 'claude')) {
+            $null = Invoke-Native { npm install -g '@anthropic-ai/claude-code' }
+        }
+        if (Test-CommandExists 'claude') {
+            Write-Host "    OK   Claude Code installed - open a NEW terminal and type 'claude'" -ForegroundColor Green
+        } else {
+            Write-Host "    WARN Claude Code install did not complete" -ForegroundColor Yellow
+        }
+    }
+
+    # Finale
+    Write-Host ""
+    Write-Host "==============================================" -ForegroundColor Green
+    Write-Host " Install complete." -ForegroundColor Green
+    Write-Host "==============================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Next steps:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  1. Open " -NoNewline
+    Write-Host "Claude" -ForegroundColor Yellow -NoNewline
+    Write-Host " from the Start menu (or look for the Claude icon)."
+    Write-Host "  2. Sign in with your Anthropic account."
+    Write-Host "     You should be invited to the Chase Group Construction Team workspace."
+    Write-Host "     If you don't see the invite, ask Chase."
+    Write-Host "  3. In the Projects sidebar, you'll see the shared company agents:"
+    Write-Host "       Email Agent, PM Agent, Operator, Onboarding."
+    Write-Host "     Pick one to start a conversation focused on that area, or just start"
+    Write-Host "     a default chat for general use."
+    Write-Host "  4. The first time you ask Claude about your mail / calendar / SharePoint,"
+    Write-Host "     a Microsoft sign-in popup appears. Approve it with your"
+    Write-Host "     @chasegroupcc.com account."
+    Write-Host ""
+    Write-Host "Try asking:" -ForegroundColor White
+    Write-Host '  "What is on my calendar today?"' -ForegroundColor DarkGray
+    Write-Host '  "Find emails from Mitchell Rotolo about FPK this week."' -ForegroundColor DarkGray
+    Write-Host '  "Show me what is in the 25-116 800 E Farrel folder."' -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "Stuck? Message Chase. The full install log is at:"
+    Write-Host "  $LogPath" -ForegroundColor DarkGray
+    Pause-And-Exit 0
 
 } catch {
-    Show-Banner "UNEXPECTED ERROR" 'Red'
-    Write-Host "$($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "==============================================" -ForegroundColor Red
+    Write-Host " INSTALL FAILED" -ForegroundColor Red
+    Write-Host "==============================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
     Write-Host "Where it happened:" -ForegroundColor DarkGray
     Write-Host "$($_.ScriptStackTrace)" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "Send Chase the log file:" -ForegroundColor Yellow
+    Write-Host "Send Chase the log file at:" -ForegroundColor Yellow
     Write-Host "  $LogPath" -ForegroundColor DarkGray
     Pause-And-Exit 1
 }
