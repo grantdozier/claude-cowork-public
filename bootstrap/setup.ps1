@@ -202,4 +202,9 @@ Write-Host "  1. Open a NEW terminal window (so PATH refreshes)."
 Write-Host "  2. Run: " -NoNewline
 Write-Host "claude" -ForegroundColor Yellow
 Write-Host "  3. Sign in to Microsoft 365 with your @chasegroupcc.com account."
+Write-Host "  4. Once Claude is running, type: " -NoNewline
+Write-Host "/onboard" -ForegroundColor Yellow
+Write-Host "     That runs a first-time health check (M365 sign-in, mailbox,"
+Write-Host "     calendar, SharePoint, personal folder) and tells you if"
+Write-Host "     anything needs Chase's attention."
 Write-Host ""

@@ -42,6 +42,10 @@ For per-project context (FPK, 800 E Farrel, etc.), load the matching file from `
 
 13 active/completed/preconstruction projects + Trimble Sight Rollout tag. See `subagents/email-agent/per-project/` for per-project routing details. Authoritative list is in `Chase Group Files/2. PROJECTS/`.
 
+## First-time setup
+
+If the user mentions this is their first time using Claude here, or asks "is this thing working", or asks "am I set up correctly", direct them to run the `/onboard` slash command. It verifies M365 sign-in, mailbox/calendar/SharePoint access, personal Cowork-Personal folder existence, and platform config presence — produces a clean PASS/FAIL checklist.
+
 ## When you're unsure
 
 - Construction question: check `knowledge/sops/` first.

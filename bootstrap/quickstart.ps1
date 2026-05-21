@@ -129,9 +129,14 @@ try {
         Write-Host "     (Important - it needs to be new so it picks up the new programs.)"
         Write-Host "  3. Type: " -NoNewline
         Write-Host "claude" -ForegroundColor Yellow
-        Write-Host "     Then sign in with your @chasegroupcc.com account when asked."
+        Write-Host "     Sign in with your @chasegroupcc.com account when asked."
+        Write-Host "  4. Once Claude is running, type: " -NoNewline
+        Write-Host "/onboard" -ForegroundColor Yellow
+        Write-Host "     This runs a first-time health check (M365 sign-in, mailbox,"
+        Write-Host "     calendar, SharePoint, personal folder) and tells you if"
+        Write-Host "     anything needs Chase's attention."
         Write-Host ""
-        Write-Host "Try asking Claude things like:" -ForegroundColor White
+        Write-Host "After that, try asking Claude things like:" -ForegroundColor White
         Write-Host '  "What''s on my calendar today?"'
         Write-Host '  "Find emails from Mitchell Rotolo about FPK this week."'
         Write-Host '  "Show me what''s in the 25-116 800 E Farrel folder."'
