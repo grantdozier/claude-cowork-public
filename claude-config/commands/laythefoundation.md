@@ -45,7 +45,7 @@ Record each answer. If "Not sure," tag it and keep going — never stall the wiz
 
 The taxonomy already exists; you're confirming/adjusting it for *his* operation. Pre-fill each question with the current/known answer and let him confirm or change. Cover:
 
-- **Who handles what (action routing).** For each action type — *needs a reply, needs approval, needs payment, needs a signature, needs review* — who should it go to (Chase, Alex, Shawnee, Kaylin), and is there an escalation (e.g. "if I don't answer within an hour, send it to …")?
+- **Who handles what (action routing).** For each action type — *needs a reply, needs approval, needs payment, needs a signature, needs review* — who on the team owns it, and is there an escalation (e.g. "if I don't answer within an hour, send it to …")? Pre-fill from existing config/known answers if available; otherwise ask.
 - **Dollar review policy.** "Do you want to personally review every change order and invoice, or only above a dollar amount?" (Capture the threshold, or $0 = review everything, and why.)
 - **Risks to watch.** Confirm the risk list; ask if any risk he flags in his head is missing (e.g. *materials we buy for labor-only subs*, *as-built / existing-conditions documentation*).
 - **Commitment tracking.** "Should the system watch every mailbox for promises ('I'll send it Friday') or just yours? Track promises you made, promises made to you, or both?"
