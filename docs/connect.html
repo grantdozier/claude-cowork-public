@@ -3,16 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Connect — Chase Group Construction Internal Tools</title>
+<title>QB Auth — Chase Group</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 560px; margin: 80px auto; padding: 0 24px; color: #222; line-height: 1.7; text-align: center; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 640px; margin: 60px auto; padding: 0 24px; color: #222; }
   h1 { font-size: 1.3rem; }
-  p { font-size: 0.95rem; color: #555; }
+  .box { background: #f4f4f4; border: 1px solid #ccc; border-radius: 6px; padding: 16px; word-break: break-all; font-family: monospace; font-size: 0.85rem; margin: 16px 0; }
+  .label { font-size: 0.8rem; color: #888; margin-bottom: 4px; }
+  button { padding: 8px 16px; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+  button:hover { background: #0052a3; }
+  .success { color: #2a7a2a; font-weight: bold; }
+  .waiting { color: #888; }
 </style>
 </head>
 <body>
-<h1>QuickBooks Connected</h1>
-<p>Chase Group Construction internal tools are now connected to QuickBooks Online.</p>
-<p>This is an internal business application. If you arrived here unexpectedly, please contact <a href="mailto:chase@chasegroupcc.com">chase@chasegroupcc.com</a>.</p>
+<h1>QuickBooks Authorization</h1>
+<div id="status"></div>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const code    = params.get('code');
+  const state   = params.get('state');
+  const realmId = params.get('realmId');
+  const error   = params.get('error');
+  const el      = document.getElementById('status');
+
+  if (error) {
+    el.innerHTML = '<p style="color:red">Authorization failed: ' + error + '</p>';
+  } else if (code) {
+    el.innerHTML =
+      '<p class="success">Authorization successful. Copy the full URL from your browser address bar and paste it back into the terminal.</p>' +
+      '<div class="label">Full callback URL (copy this):</div>' +
+      '<div class="box" id="urlbox">' + window.location.href + '</div>' +
+      '<button onclick="navigator.clipboard.writeText(document.getElementById(\'urlbox\').innerText).then(()=>this.innerText=\'Copied!\')">Copy URL</button>' +
+      '<p style="margin-top:24px;font-size:0.85rem;color:#555;">Realm ID: <strong>' + (realmId||'not found') + '</strong></p>';
+  } else {
+    el.innerHTML = '<p class="waiting">Waiting for authorization...</p>';
+  }
+</script>
 </body>
 </html>
